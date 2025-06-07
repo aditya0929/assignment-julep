@@ -198,4 +198,4 @@ The development process involved creating the core functionality, integrating it
 - **Julep**: For enabling food tour generation.
 - **Streamlit**: For the intuitive web app framework.
 
-**Created with ❤️ for food lovers** lovers on June 10, 2025.
+
