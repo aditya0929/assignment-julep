@@ -1,6 +1,6 @@
 # assignment-julep
 
-# Foodie Tour Generator (JULEP AI) Streamlit App
+## Foodie Tour Generator (JULEP AI) Streamlit App - (view in light theme) 
 
 ## Overview
 This project is a Streamlit web application that generates personalized one-day foodie tours for selected cities based on current weather conditions. The app fetches weather data from the Open-Meteo API and uses the Julep API to create culturally relevant food tours, recommending iconic dishes and top-rated restaurants for breakfast, lunch, and dinner. The app supports multiple cities, provides a user-friendly interface with card-based visualizations, and allows users to download results as a JSON file.
