@@ -1,3 +1,4 @@
+%%writefile main.py
 import streamlit as st
 import json
 import time
@@ -25,24 +26,38 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Julep API key
-JULEP_API_KEY = st.secrets["JULEP_API"]
+JULEP_API_KEY = st.secrets["JULEP_API_KEY"]
 
 # Initialize Julep client
 client = Julep(api_key=JULEP_API_KEY, environment="production")
 
-# Agent ID from Step 2
+# Agent ID
 agent_id = "0684428f-e045-76d5-8000-3f78054879ba"
 
-# Weather function (corrected URL, debug prints removed)
+# Function to get city coordinates using Open-Meteo Geocoding API
+@st.cache_data(ttl=86400)  # Cache for 24 hours
+def get_city_coordinates(city):
+    url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=en&format=json"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+        if data.get("results"):
+            result = data["results"][0]
+            return {"lat": float(result["latitude"]), "lon": float(result["longitude"])}
+        else:
+            st.warning(f"City {city} not found in Open-Meteo database. Please ensure the city is valid.")
+            return None
+    except requests.RequestException as e:
+        st.error(f"Error fetching coordinates for {city}: {e}")
+        return None
+
+# Weather function
 def get_weather(city):
-    city_coords = {
-        "Paris": {"lat": 48.8566, "lon": 2.3522},
-        "New York": {"lat": 40.7128, "lon": -74.0060},
-        "Tokyo": {"lat": 35.6762, "lon": 139.6503}
-    }
-    if city not in city_coords:
-        return {"temperature": None, "condition": "unknown", "is_outdoor": False, "error": f"City {city} not found in coordinates database"}
-    lat, lon = city_coords[city]["lat"], city_coords[city]["lon"]
+    coords = get_city_coordinates(city)
+    if not coords:
+        return {"temperature": None, "condition": "unknown", "is_outdoor": False}
+    lat, lon = coords["lat"], coords["lon"]
     url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weathercode&timezone=auto"
     try:
         response = requests.get(url)
@@ -58,9 +73,10 @@ def get_weather(city):
             "is_outdoor": is_outdoor
         }
     except requests.RequestException as e:
-        return {"temperature": None, "condition": "unknown", "is_outdoor": False, "error": f"Error fetching weather for {city}: {str(e)}"}
+        st.error(f"Error fetching weather for {city}: {e}")
+        return {"temperature": None, "condition": "unknown", "is_outdoor": False}
 
-# Foodie tour generation function (unchanged, debug prints removed)
+# Foodie tour generation function
 def generate_foodie_tour(city, weather):
     dining_type = "outdoor" if weather["is_outdoor"] else "indoor"
     prompt = f"""
@@ -104,53 +120,56 @@ def generate_foodie_tour(city, weather):
             while (result := client.executions.get(execution.id)).status not in ['succeeded', 'failed']:
                 time.sleep(2)
                 if time.time() > timeout:
-                    return {"error": f"Execution timed out for {city}"}
+                    st.error("Execution timed out after 60 seconds")
+                    break
             if result.status == "succeeded":
                 raw_response = result.output['choices'][0]['message']['content']
                 parsed_response = json.loads(raw_response)
                 return parsed_response
             else:
+                st.error(f"Execution failed with error: {result.error}")
                 if attempt < max_retries - 1:
                     time.sleep(5)
                 else:
-                    return {"error": f"Execution failed for {city}: {result.error}"}
+                    st.error("Max retries reached")
+                    return None
     except Exception as e:
-        return {"error": f"Error generating foodie tour for {city}: {e.__class__.__name__}: {str(e)}"}
+        st.error(f"Error generating foodie tour for {city}: {e.__class__.__name__}: {str(e)}")
+        return None
 
-# Workflow function for multiple cities (processing messages removed)
+# Workflow function for multiple cities
 def main_workflow(cities):
     results = []
     for city in cities:
-        weather = get_weather(city)
-        if weather.get("error"):
-            results.append({"city": city, "error": weather["error"]})
-            continue
-        if weather["temperature"] is not None:
-            foodie_tour = generate_foodie_tour(city, weather)
-            if foodie_tour and not foodie_tour.get("error"):
-                results.append(foodie_tour)
+        with st.spinner(f"Processing {city}..."):
+            weather = get_weather(city)
+            if weather["temperature"] is not None:
+                foodie_tour = generate_foodie_tour(city, weather)
+                if foodie_tour:
+                    results.append(foodie_tour)
+                    st.success(f"Foodie tour generated for {city}")
+                else:
+                    st.error(f"Failed to generate foodie tour for {city}")
             else:
-                results.append({"city": city, "error": foodie_tour.get("error", "Failed to generate foodie tour")})
-        else:
-            results.append({"city": city, "error": "Failed to fetch weather"})
-        time.sleep(1)  # Avoid API rate limits
+                st.error(f"Failed to fetch weather for {city}")
+            time.sleep(1)  # Avoid API rate limits
     return results
 
-# Initialize session state for JSON toggle
-if "show_json" not in st.session_state:
-    st.session_state.show_json = {}
+# Streamlit app interface
+st.markdown('<div class="title">Foodie Tour Generator 🍽️</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Plan your culinary adventure with weather-based dining recommendations!</div>', unsafe_allow_html=True)
 
 # Sidebar for city selection
 with st.sidebar:
     st.header("City Selection")
-    predefined_cities = ["Paris", "New York", "Tokyo"]
+    predefined_cities = ["Paris", "New York", "Tokyo", "Delhi", "London", "Sydney"]  # Example cities
     selected_cities = st.multiselect(
         "Choose cities:",
         options=predefined_cities,
         default=["Paris"],
         help="Select one or more cities from the list."
     )
-    custom_city = st.text_input("Add a custom city:", help="e.g., London (note: only predefined cities are supported)")
+    custom_city = st.text_input("Add a custom city:", help="e.g., Delhi, London, Sydney, Mumbai")
     if custom_city:
         custom_city = custom_city.strip()
         if custom_city and custom_city not in selected_cities:
@@ -162,26 +181,19 @@ with st.sidebar:
         st.warning("Please select at least one city.")
 
 # Main content
-st.markdown('<div class="title">Foodie Tour Generator 🍽️</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Plan your culinary adventure with weather-based dining recommendations!</div>', unsafe_allow_html=True)
-
-if st.button("Generate Foodie Tours", key="generate_button"):
+st.info("Enter any city worldwide to generate a foodie tour!")
+if st.button("Generate Foodie Tours"):
     if selected_cities:
-        with st.spinner("Generating foodie tours..."):
-            results = main_workflow(selected_cities)
+        results = main_workflow(selected_cities)
         if results:
             st.subheader("Foodie Tour Results")
-            for result in results:
-                if result.get("error"):
-                    st.error(f"Error for {result['city']}: {result['error']}")
-                    continue
-                city = result["city"]
+            for tour in results:
+                city = tour["city"]
                 with st.expander(f"Foodie Tour for {city}", expanded=True):
-                    # Visualizations using cards
-                    st.markdown(f"**Weather**: {result['weather']['condition'].capitalize()}, {result['weather']['temperature']}°C, {result['weather']['dining'].capitalize()} dining")
-                    st.markdown(f"**Iconic Dishes**: {', '.join(result['iconic_dishes'])}")
+                    st.markdown(f"**Weather**: {tour['weather']['condition'].capitalize()}, {tour['weather']['temperature']}°C, {tour['weather']['dining'].capitalize()} dining")
+                    st.markdown(f"**Iconic Dishes**: {', '.join(tour['iconic_dishes'])}")
                     for meal in ["breakfast", "lunch", "dinner"]:
-                        meal_data = result["tour"][meal]
+                        meal_data = tour["tour"][meal]
                         st.markdown(f'<div class="card"><div class="card-title">{meal.capitalize()}</div>', unsafe_allow_html=True)
                         col1, col2 = st.columns([2, 1])
                         with col1:
@@ -192,20 +204,18 @@ if st.button("Generate Foodie Tours", key="generate_button"):
                         with col2:
                             st.markdown(f"**Weather Consideration**: {meal_data['weather_consideration']}")
                         st.markdown('</div>', unsafe_allow_html=True)
-                    # Button to toggle JSON display
-                    if st.button("Toggle Raw JSON", key=f"json_toggle_{city}"):
-                        st.session_state.show_json[city] = not st.session_state.show_json.get(city, False)
-                    if st.session_state.show_json.get(city, False):
-                        st.json(result)
+                
+                # Display raw JSON outside of expander
+                st.markdown(f"**Raw JSON for {city}**")
+                st.json(tour)
             
-            # Download JSON
+            # Save and download results
             json_str = json.dumps({"foodie_tours": results}, indent=2)
             st.download_button(
                 label="Download Foodie Tours as JSON",
                 data=json_str,
                 file_name="foodie_tours.json",
-                mime="application/json",
-                key="download_button"
+                mime="application/json"
             )
         else:
             st.error("No foodie tours generated.")
@@ -213,4 +223,4 @@ if st.button("Generate Foodie Tours", key="generate_button"):
         st.error("Please select at least one city.")
 
 st.markdown("---")
-st.markdown("powered by Julep AI and Open-Meteo for weather data - assignment submission")
+st.markdown("Powered by Julep API and Open-Meteo | Created with ❤️ for food lovers")
