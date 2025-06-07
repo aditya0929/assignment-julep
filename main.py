@@ -223,4 +223,4 @@ if st.button("Generate Foodie Tours"):
         st.error("Please select at least one city.")
 
 st.markdown("---")
-st.markdown("Powered by Julep API and Open-Meteo | Created with ❤️ for food lovers")
+st.markdown("Powered by Julep API and Open-Meteo")
