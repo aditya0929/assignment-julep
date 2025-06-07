@@ -193,9 +193,6 @@ The development process involved creating the core functionality, integrating it
    - Restart the server/tunnel if the app doesn’t load.
 - **Contact**: Share error messages, stack traces, or screenshots for debugging.
 
-## Acknowledgments
-- **Open-Meteo**: For providing free weather data.
-- **Julep**: For enabling food tour generation.
-- **Streamlit**: For the intuitive web app framework.
+
 
 
